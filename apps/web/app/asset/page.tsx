@@ -19,8 +19,20 @@ import {
   type SupplyBreakdown,
   type TomlCheck,
 } from "@plimsoll/sdk";
-import { Gauge, Skeleton, Stat, StatusPill, TierPill, ratioText, statusOf } from "@/components/ui";
+import {
+  CopyButton,
+  Gauge,
+  Skeleton,
+  Stat,
+  StatusPill,
+  TierPill,
+  nowSecs,
+  ratioText,
+  statusOf,
+} from "@/components/ui";
+import { assetFromSearch } from "@/lib/asset-query";
 import { config, explorer } from "@/lib/config";
+import { embedCode } from "@/lib/badge";
 import {
   contracts,
   indexer,
@@ -41,7 +53,8 @@ export default function AssetPage() {
 }
 
 function AssetDetail() {
-  const sac = useSearchParams().get("sac") ?? "";
+  const query = assetFromSearch(useSearchParams().toString(), config.network.networkPassphrase);
+  const sac = query.ok ? query.sac : "";
   const [asset, setAsset] = useState<AssetView | null | undefined>(undefined);
   const [names, setNames] = useState<ReadonlyMap<string, string>>(new Map());
   const load = useCallback(async () => {
@@ -63,11 +76,23 @@ function AssetDetail() {
   }, [sac]);
   const { now, refreshing, error, refresh } = useAutoRefresh(load);
 
-  if (!sac) {
+  if (!query.ok) {
     return (
-      <p className="notice notice-info">
-        No asset selected. <Link href="/">Back to all assets</Link>.
-      </p>
+      <section className="card mt" aria-labelledby="asset-query-heading">
+        <div className="eyebrow">Asset link</div>
+        <h1 id="asset-query-heading">
+          {query.missing ? "No asset selected" : "That asset link is not valid"}
+        </h1>
+        <p className={`notice ${query.missing ? "notice-info" : "notice-bad"}`} role="alert">
+          {query.error}
+        </p>
+        <p className="sub">
+          Open an asset with <code>?asset=CODE:ISSUER</code> or <code>?sac=C...</code>.
+        </p>
+        <p>
+          <Link href="/">Back to all assets</Link>
+        </p>
+      </section>
     );
   }
   if (error && asset === undefined)
@@ -123,6 +148,7 @@ function AssetDetail() {
             >
               {shortAddress(asset.issuer, 6)}
             </a>
+            <CopyButton value={asset.issuer} label="issuer address" />
             {asset.toml?.home_domain ? <> · {asset.toml.home_domain}</> : null}
             {asset.toml?.org_name ? <> · {asset.toml.org_name}</> : null}
           </div>
@@ -185,7 +211,12 @@ function AssetDetail() {
         />
         <Stat
           label="Asset contract"
-          value={<span className="mono">{shortAddress(asset.sac, 6)}</span>}
+          value={
+            <>
+              <span className="mono">{shortAddress(asset.sac, 6)}</span>{" "}
+              <CopyButton value={asset.sac} label="asset contract id" />
+            </>
+          }
           sub={
             <a href={explorer.contract(asset.sac)} target="_blank" rel="noreferrer">
               explorer
@@ -246,6 +277,8 @@ function AssetDetail() {
 
       <h2>What the issuer publishes</h2>
       <IssuerToml asset={asset} />
+
+      <EmbedBadge sac={asset.sac} />
     </>
   );
 }
@@ -307,7 +340,8 @@ function ReportRow({
           rel="noreferrer"
         >
           {shortAddress(report.reporter)}
-        </a>
+        </a>{" "}
+        <CopyButton value={report.reporter} label="reporter address" />
         {report.reporter === issuer ? <div className="sub">issuer account</div> : null}
         <div className="sub">
           <Provenance view={report} />
@@ -319,6 +353,10 @@ function ReportRow({
             <a href={safeHref(report.docUri)} target="_blank" rel="noreferrer">
               Open
             </a>
+            <div>
+              Hash <span className="mono">{shortAddress(report.docHash, 8)}</span>{" "}
+              <CopyButton value={report.docHash} label="document hash" />
+            </div>
             <DocCheck uri={report.docUri} hash={report.docHash} />
           </>
         ) : (
@@ -543,7 +581,8 @@ function SupplySection({
         <a className="mono" href={explorer.account(poster)} target="_blank" rel="noreferrer">
           {shortAddress(poster)}
         </a>
-        . Breakdown hash <code className="break">{hash}</code>
+        . Breakdown hash <code className="break">{hash}</code>{" "}
+        <CopyButton value={hash} label="breakdown hash" />
       </p>
       {breakdown ? (
         <div className="table-wrap">
@@ -672,5 +711,34 @@ function IssuerToml({ asset }: { asset: AssetView }) {
         {cached ? "Read by the Plimsoll indexer." : "Checked live from your browser."}
       </p>
     </div>
+  );
+}
+
+function EmbedBadge({ sac }: { sac: string }) {
+  const [copied, setCopied] = useState(false);
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const snippet = embedCode(sac, { origin, basePath: config.basePath });
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(snippet);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <section className="card mt" aria-labelledby="embed-h">
+      <h2 id="embed-h">Embed badge</h2>
+      <p className="sub">
+        Copy this snippet to show a live reserve-coverage badge that links back to this asset page.
+      </p>
+      <pre style={{ overflowX: "auto", margin: "8px 0" }}>{snippet}</pre>
+      <button type="button" className="secondary" onClick={copy}>
+        {copied ? "Copied" : "Copy embed code"}
+      </button>
+    </section>
   );
 }
