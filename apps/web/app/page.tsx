@@ -1,33 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { AssetCard } from "@/components/AssetCard";
-import { Skeleton, nowSecs } from "@/components/ui";
+import { Skeleton } from "@/components/ui";
 import { config } from "@/lib/config";
 import { loadAssets, type AssetView } from "@/lib/data";
+import { useAutoRefresh } from "@/lib/refresh";
 
 export default function Home() {
   const [assets, setAssets] = useState<AssetView[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [now, setNow] = useState(nowSecs());
-
-  useEffect(() => {
-    let cancelled = false;
-    loadAssets()
-      .then((list) => {
-        if (!cancelled) {
-          setAssets(list);
-          setNow(nowSecs());
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      cancelled = true;
-    };
+  const load = useCallback(async () => {
+    const list = await loadAssets();
+    setAssets(list);
   }, []);
+  const { now, refreshing, error, refresh } = useAutoRefresh(load);
 
   const source = assets?.[0]?.source;
 
@@ -45,13 +32,25 @@ export default function Home() {
 
       <div className="spread mt">
         <h2 style={{ margin: 0 }}>Listed assets</h2>
-        <span className="sub">
-          {source === "indexer"
-            ? "Read from the Plimsoll indexer"
-            : source === "chain"
-              ? `Read directly from the coverage ledger on ${config.networkName}`
-              : null}
-        </span>
+        <div className="row">
+          <span className="sub">
+            {source === "indexer"
+              ? "Read from the Plimsoll indexer"
+              : source === "chain"
+                ? `Read directly from the coverage ledger on ${config.networkName}`
+                : null}
+          </span>
+          <button
+            type="button"
+            className="secondary"
+            onClick={refresh}
+            disabled={refreshing}
+            aria-label="Refresh listed assets"
+            style={{ padding: "3px 10px", fontSize: "0.82rem" }}
+          >
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {error ? (

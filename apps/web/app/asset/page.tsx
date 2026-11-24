@@ -19,16 +19,7 @@ import {
   type SupplyBreakdown,
   type TomlCheck,
 } from "@plimsoll/sdk";
-import {
-  Gauge,
-  Skeleton,
-  Stat,
-  StatusPill,
-  TierPill,
-  nowSecs,
-  ratioText,
-  statusOf,
-} from "@/components/ui";
+import { Gauge, Skeleton, Stat, StatusPill, TierPill, ratioText, statusOf } from "@/components/ui";
 import { config, explorer } from "@/lib/config";
 import {
   contracts,
@@ -39,6 +30,7 @@ import {
   type Origin,
   type ReportView,
 } from "@/lib/data";
+import { useAutoRefresh } from "@/lib/refresh";
 
 export default function AssetPage() {
   return (
@@ -51,29 +43,25 @@ export default function AssetPage() {
 function AssetDetail() {
   const sac = useSearchParams().get("sac") ?? "";
   const [asset, setAsset] = useState<AssetView | null | undefined>(undefined);
-  const [error, setError] = useState<string | null>(null);
-  const [now, setNow] = useState(nowSecs());
   const [names, setNames] = useState<ReadonlyMap<string, string>>(new Map());
-
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!sac) return;
-    loadAsset(sac)
-      .then((a) => {
-        setAsset(a);
-        setNow(nowSecs());
-        if (!a) return;
-        const addresses = Object.values(a.reports)
-          .filter((r): r is ReportView => r !== undefined)
-          .map((r) => r.reporter);
-        if (a.supply) addresses.push(a.supply.poster);
-        // Names are an improvement on the addresses already shown, not a
-        // precondition for them, so a failed lookup leaves the page as it is.
-        loadReporterNames(addresses)
-          .then(setNames)
-          .catch((e: unknown) => console.warn("Could not load reporter names", e));
-      })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+    const a = await loadAsset(sac);
+    setAsset(a);
+    if (!a) return;
+    const addresses = Object.values(a.reports)
+      .filter((r): r is ReportView => r !== undefined)
+      .map((r) => r.reporter);
+    if (a.supply) addresses.push(a.supply.poster);
+    // Names are an improvement on the addresses already shown, not a
+    // precondition for them, so a failed lookup leaves the page as it is.
+    try {
+      setNames(await loadReporterNames(addresses));
+    } catch (e: unknown) {
+      console.warn("Could not load reporter names", e);
+    }
   }, [sac]);
+  const { now, refreshing, error, refresh } = useAutoRefresh(load);
 
   if (!sac) {
     return (
@@ -82,7 +70,7 @@ function AssetDetail() {
       </p>
     );
   }
-  if (error)
+  if (error && asset === undefined)
     return (
       <p className="notice notice-bad" role="alert">
         Could not load this asset: {error}
@@ -111,6 +99,11 @@ function AssetDetail() {
 
   return (
     <>
+      {error ? (
+        <p className="notice notice-bad mt" role="status">
+          Could not refresh this asset: {error}
+        </p>
+      ) : null}
       <p className="sub">
         <Link href="/">All assets</Link> / {asset.code}{" "}
         <Link href={`/asset/history/?sac=${asset.sac}`} style={{ marginLeft: 8 }}>
@@ -137,6 +130,16 @@ function AssetDetail() {
         <div className="row">
           <StatusPill status={status} />
           {c ? <TierPill tier={c.tier} /> : null}
+          <button
+            type="button"
+            className="secondary"
+            onClick={refresh}
+            disabled={refreshing}
+            aria-label={`Refresh ${asset.code}`}
+            style={{ padding: "3px 10px", fontSize: "0.82rem" }}
+          >
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
         </div>
       </div>
 
