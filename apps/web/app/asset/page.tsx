@@ -26,7 +26,6 @@ import {
   Stat,
   StatusPill,
   TierPill,
-  nowSecs,
   ratioText,
   statusOf,
 } from "@/components/ui";
